@@ -5,7 +5,9 @@ import codecraft.dynamic.DynamicCar;
 import codecraft.dynamic.DynamicRoad;
 import codecraft.enums.CarDir;
 import codecraft.enums.CarStatus;
+import codecraft.origin.Car;
 import codecraft.origin.Cross;
+import codecraft.origin.Road;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -21,6 +23,7 @@ import java.util.List;
  * WAIT被堵在当前道路需要run in road吗？
  */
 public class GetSolution{
+	private boolean deadlock=false;
 
 	public void solution(){
 		driveCarInGarage();
@@ -31,6 +34,7 @@ public class GetSolution{
 		while(DynamicData.arrivedCars.size()!=DynamicData.cars.size()) {
 			//调整所有道路上在道路上的车辆，让道路上车辆前进，只要不出路口且可以到达终止状态的车辆
 
+			DynamicData.carInSystem=0;
 			//DynamicData.currentMillisTime=System.currentTimeMillis();
 			for (DynamicRoad road : DynamicData.dynamicRoadMap.values()) {
 				roadBlockState(road);
@@ -52,13 +56,13 @@ public class GetSolution{
 
 
 			//一个事件片内，一次调度时7与8的调度会出现多次重复调度
-			for (Integer crossI : DynamicData.crosses) {
-				Cross cross=DynamicData.staticCrossMap.get(crossI);
+			for (Integer crossId : DynamicData.crosses) {
+				Cross cross=DynamicData.staticCrossMap.get(crossId);
 				int cycleTime=0;
 				boolean cycleEnd=false;
 				crossOut:
 				while(!cycleEnd) {
-					//System.out.printf("  corss:%3d,循环次数：%s\n",DynamicData.crosses.indexOf(crossI)+1,cycleTime+=1);
+					//System.out.printf("  corss:%5d,循环次数：%s\n",crossId,cycleTime);
 					for (Integer r : cross.sortRoads) {
 						if (r.equals(Integer.MAX_VALUE)) {
 							continue;
@@ -100,7 +104,7 @@ public class GetSolution{
 									if (car.dir==null){
 										car.format();
 										DynamicData.arrivedCars.add(car.info.id);
-										System.out.println(car.info.id+"到达："+car.info.to);
+										//System.out.println(car.info.id+"到达："+car.info.to);
 										cars[i][j]=null;
 									}
 									if (car.dir == CarDir.D) {
@@ -150,49 +154,54 @@ public class GetSolution{
 						}
 						//调整所有车道内Status为End的车辆
 						runInRoadWithTwoDirection(road,cars);
-						//runInRoad(road);
 					}
+					cycleTime++;
 					if(cycleTime>100){
-						System.out.printf("循环大于%3d次",cycleTime);
+						System.out.printf("循环大于%5d次\n",cycleTime);
 						break;
 					}
 				}
 			}
 			//每个cross，每条road循环结束
 
-			driveCarInGarage();
-			for(DynamicCar car:DynamicData.dynamicCarMap.values()){
-				if(DynamicData.arrivedCars.contains(car.info.id)){continue;}
-				judgeDeadlock(car);
-			}
-			DynamicData.timeSlice+=1;
-			/*if(DynamicData.timeSlice>970 && DynamicData.timeSlice<973){
-				for(DynamicCar car:DynamicData.dynamicCarMap.values()){
-					if(DynamicData.arrivedCars.contains(car.info.id)){continue;}
-					System.out.printf("id:%s,cross:%s,currentRoad:%s,nextRoad:%s," +
-									"laneNumber:%s,position:%s,status:%s,dir:%s\n",
-							car.info.id,
-							DynamicData.dynamicRoadMap.get(car.currentRoad).info.from,
-							car.currentRoad,
-							car.nextRoad,
-							car.currentRoadLane,
-							car.position,
-							car.status,
-							car.dir
-					);
-				}
-				*//*System.out.println();
-				DynamicRoad tempRoad=DynamicData.dynamicRoadMap.get(5418);
-				for(int i=0;i<tempRoad.rightCarMap.length;i++){
-					for(int j=0;j<tempRoad.rightCarMap[0].length;j++){
-						System.out.printf("%s ",tempRoad.rightCarMap[0][j]);
+			//更新道路实时负载
+			for(DynamicRoad road:DynamicData.dynamicRoadMap.values()){
+				int k=0,t=0;
+				DynamicCar[][] carMap=road.rightCarMap;
+				for(int i=0;i<carMap.length;i++){
+					for(int j=0;j<carMap[0].length;j++){
+						if(carMap[i][j]!=null){
+							k+=1;
+							DynamicData.carInSystem++;
+						}
 					}
-					System.out.println();
-				}*//*
+				}
+				carMap=road.leftCarMap;
+				for(int i=0;i<carMap.length;i++){
+					for(int j=0;j<carMap[0].length;j++){
+						if(carMap[i][j]!=null){
+							t+=1;
+							DynamicData.carInSystem++;
+						}
+					}
+				}
+				road.realLoad=k+t+1;
+			}
 
-			}*/
 
-			System.out.printf("已处理时间片:%s,已到达车辆:%s\n",DynamicData.timeSlice,DynamicData.arrivedCars.size());
+			driveCarInGarage();
+			deadlock=judgeDeadlock();
+			DynamicData.timeSlice+=1;
+
+			System.out.printf("已处理时间片:%s,carInSystem:%s,已到达车辆:%s\n",
+					DynamicData.timeSlice,
+					DynamicData.carInSystem,
+					DynamicData.arrivedCars.size());
+			if(deadlock){
+				System.out.println("发生死锁");
+				break;
+			}
+
 			if(DynamicData.timeSlice>DynamicData.runTimeSlice) {
 				System.out.printf("时间片超过%s",DynamicData.runTimeSlice);
 				System.out.printf("用时:%s s,",(System.currentTimeMillis()-DynamicData.startTimeMillis)/1000);
@@ -339,23 +348,45 @@ public class GetSolution{
 
 	/**
 	 * 与道路right left有关
+	 * 如果被堵住了，需要从上次堵住的地方发车
 	 *
+	 * logical
+	 * for(DynamicData.departCarNumber=150){
+	 *     if(堵住了) continue; 先换回遍历所有车，如果在carOutGarage里面 || arrived则continue，每次发150辆
+	 *     没堵住：
+	 * }
 	 * @return
 	 */
 	public boolean driveCarInGarage(){
-		if(DynamicData.carOutGarage.size()==DynamicData.dynamicCarMap.size()){ return false;}
-		//Iterator it=DynamicData.dynamicCarMap;
-		for(DynamicCar car:DynamicData.dynamicCarMap.values()){
-			if(DynamicData.carOutGarage.contains(car.info.id) || car.startTime!=DynamicData.timeSlice){
+		Floyd.update(DynamicData.roads,DynamicData.crosses);
+		CrossMap map=new CrossMap(DynamicData.roads);
+		DynamicData.realDepartCarNumber=0;
+
+		//if(DynamicData.carOutGarage.size()>DynamicData.dynamicCarMap.size()){ return false;}
+		if(DynamicData.carInSystem+DynamicData.arrivedCars.size()==DynamicData.cars.size()){
+			return false;
+		}
+
+		int k=DynamicData.departCarNumber;
+
+		for(Car carI:DynamicData.cars){
+			if(DynamicData.carOutGarage.contains(carI.id) || DynamicData.dynamicCarMap.get(carI.id).isArrived){
 				continue;
 			}
-			car=DynamicData.dynamicCarMap.get(car.info.id);
+			if(k<0){
+				break;
+			}
+
+			DynamicCar car=DynamicData.dynamicCarMap.get(carI.id);
+			car.path=Floyd.findPath(map,car.info.from,car.info.to,DynamicData.crosses);
+			car.startTime=DynamicData.timeSlice;
+
 			Integer startCross=car.info.from;
 			Integer startRoad=car.path.get(0);
 			DynamicRoad road=DynamicData.dynamicRoadMap.get(startRoad);
 			int index;
 			for(index=0;index<4;index++){
-				if(DynamicData.staticCrossMap.get(startCross).orientation[index]==startRoad){
+				if(DynamicData.staticCrossMap.get(startCross).orientation[index].equals(startRoad)){
 					break;
 				}
 			}
@@ -370,11 +401,12 @@ public class GetSolution{
 			car.runSpeed=(car.info.speed<road.info.speed?car.info.speed:road.info.speed);
 
 			int[] coordinate=getNextRoadSpaceCoordinate(null,road,cars);
+
 			if(coordinate==null){
 				continue;
 			}
-			//19 10
 			car.currentRoadLane=coordinate[0];
+
 			if(coordinate[1]+1<car.runSpeed){
 				cars[coordinate[0]][coordinate[1]]=car;
 				car.currentRoad=road.info.id;
@@ -385,7 +417,11 @@ public class GetSolution{
 				car.position=car.runSpeed-1;
 			}
 			DynamicData.carOutGarage.add(car.info.id);
+			DynamicData.realDepartCarNumber++;
+			k--;
 		}
+		DynamicData.currentDepartCarNumber+=DynamicData.realDepartCarNumber;
+
 		return false;
 	}
 
@@ -656,17 +692,17 @@ public class GetSolution{
 		}
 		return -1;
 	}
-	public static void carPathSolution(){
-		Floyd f=new Floyd();
-		f.createMap(DynamicData.roads,DynamicData.crosses);
-		CrossMap map=new CrossMap(DynamicData.roads);
 
+
+	public static boolean judgeDeadlock(){
 		for(DynamicCar car:DynamicData.dynamicCarMap.values()){
-			car.path=f.findPath(map,car.info.from,car.info.to,DynamicData.crosses);
+			if(DynamicData.arrivedCars.contains(car.info.id)){continue;}
+			if(judgeDeadlock(car)){
+				return true;
+			}
 		}
-
+		return false;
 	}
-
 	public static boolean judgeDeadlock(DynamicCar car){
 		List<Integer> visitedCar=new ArrayList<>();
 		boolean judge=recursion(visitedCar,car);
@@ -737,6 +773,6 @@ public class GetSolution{
 
 		DynamicData.dynamicCarMap.get(82524).isWait=true;
 		DynamicData.dynamicCarMap.get(82524).waitCar=77990;
-		System.out.println(judgeDeadlock(DynamicData.dynamicCarMap.get(77990)));
+		System.out.println(judgeDeadlock());
 	}
 }
