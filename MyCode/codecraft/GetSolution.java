@@ -2,12 +2,12 @@ package codecraft;
 
 import codecraft.algorithm.Floyd;
 import codecraft.dynamic.DynamicCar;
+import codecraft.dynamic.DynamicCross;
 import codecraft.dynamic.DynamicRoad;
 import codecraft.enums.CarDir;
 import codecraft.enums.CarStatus;
 import codecraft.origin.Car;
 import codecraft.origin.Cross;
-import codecraft.origin.Road;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,10 +17,12 @@ import java.util.List;
  * @author 尹辉东
  *
  * 20201027
- * 需要改下DynamicRoad leftRoad\rightRoad\oppositeRoad 解决
- * driveCarInGarage rightCarMap\leftCarMap 解决
- * runSpeed没更新，需要每次mark车辆时更新runSpeed吗？
- * WAIT被堵在当前道路需要run in road吗？
+ * 1.需要改下DynamicRoad leftRoad\rightRoad\oppositeRoad 解决
+ * 2.driveCarInGarage rightCarMap\leftCarMap 解决
+ * 3.runSpeed没更新，需要每次mark车辆时更新runSpeed吗？
+ * 4.WAIT被堵在当前道路需要run in road吗？处理方式是在当前道路行驶
+ *
+ * 5.runInCross中passPath的逻辑问题
  */
 public class GetSolution{
 	private boolean deadlock=false;
@@ -32,7 +34,6 @@ public class GetSolution{
 		AdjustCrossRoadDirection m=new AdjustCrossRoadDirection();
 
 		while(DynamicData.arrivedCars.size()!=DynamicData.cars.size()) {
-			//调整所有道路上在道路上的车辆，让道路上车辆前进，只要不出路口且可以到达终止状态的车辆
 
 			DynamicData.carInSystem=0;
 			//DynamicData.currentMillisTime=System.currentTimeMillis();
@@ -43,7 +44,7 @@ public class GetSolution{
 
 
 			//drive All Wait Car
-			//只设置一次车辆的dir
+			//只设置一次车辆的dir,只设置WAIT车辆的dir
 			for (Cross cross:DynamicData.staticCrossMap.values()){
 				for (Integer road : cross.sortRoads) {
 					if (road.equals(Integer.MAX_VALUE)) {
@@ -52,6 +53,14 @@ public class GetSolution{
 					//设置方向同样只考虑进入路口方向的车辆
 					getCarDirection(cross, road);
 				}
+			}
+
+			/**
+			 * 调整所有车道内Status为End的车辆
+			 * 只调整一次
+			 */
+			for(DynamicRoad road:DynamicData.dynamicRoadMap.values()){
+				runInRoad(road);
 			}
 
 
@@ -63,11 +72,11 @@ public class GetSolution{
 				crossOut:
 				while(!cycleEnd) {
 					//System.out.printf("  corss:%5d,循环次数：%s\n",crossId,cycleTime);
+					cycleEnd=true;
 					for (Integer r : cross.sortRoads) {
 						if (r.equals(Integer.MAX_VALUE)) {
 							continue;
 						}
-						cycleEnd=true;
 						DynamicRoad road = DynamicData.dynamicRoadMap.get(r);
 
 						//只调度该路口出路口的道路
@@ -87,73 +96,97 @@ public class GetSolution{
 
 						DynamicCar car;
 						int i = 0, j = 0;
-						outer:
+						waitBreak:
 						{
 							for (j = road.info.length - 1; j >= 0; j--) {
 								for (i = 0; i < cars.length; i++) {
-									if (cars[i][j] == null) {
+									//runInRoad format() null了car的status
+									if (cars[i][j] == null || cars[i][j].status==null || !cars[i][j].status.equals(CarStatus.WAIT)) {
 										continue;
 									}
+
 									car = cars[i][j];
 									if(car.dir!=null){
 										cycleEnd=false;
 									}
 
 									if(car.status==null || !car.status.equals(CarStatus.WAIT)){continue;}
-									//
-									if (car.dir==null){
-										car.format();
-										DynamicData.arrivedCars.add(car.info.id);
-										//System.out.println(car.info.id+"到达："+car.info.to);
-										cars[i][j]=null;
-									}
-									if (car.dir == CarDir.D) {
-										runInCross(road.info.id, car.nextRoad,cross.id);
-										//cars[i][j] = null;
+
+									if (car.dir==null && car.isArrivedLastRoad){
+										int speed=(road.info.speed<car.info.speed?road.info.speed:car.info.speed);
+										int S1=road.info.length-1-j;
+										if(speed>S1){
+											car.isArrived=true;
+											DynamicData.arrivedCars.add(car.info.id);
+											cars[i][j]=null;
+											//System.out.printf("%s到达终点\n",car.info.id);
+											continue;
+										}else{
+											runInRoadOfCar(road,cars,car,i,j);
+										}
 										continue;
 									}
 
-									if (car.dir == CarDir.L) {
-										if (findFirstCarOnFront(road.getRightRoad(cross.id)) != null && (findFirstCarOnFront(road.getRightRoad(cross.id)).dir == CarDir.D)) {
-											car.isWait = true;
-											car.waitRoad = road.getRightRoad(cross.id);
-											car.waitCar = findFirstCarOnFront(road.getRightRoad(cross.id)).info.id;
-											break outer;
-										}
-
-										if (findFirstCarOnFront(road.getRightRoad(cross.id)) == null || (findFirstCarOnFront(road.getRightRoad(cross.id)).dir == CarDir.R
-												|| (findFirstCarOnFront(road.getRightRoad(cross.id)).dir == CarDir.L
-												&& findFirstCarOnFront(road.getRightRoad(cross.id)).isWait
-												&& findCarAtRoad(findFirstCarOnFront(road.getRightRoad(cross.id)).waitRoad, findFirstCarOnFront(road.getRightRoad(cross.id)).waitCar) != -1))) {
-											runInCross(road.info.id, car.nextRoad,cross.id);
-											//cars[i][j] = null;
-											continue;
-										}
+									if (car.dir == CarDir.D) {
+										runInCross(road.info.id, car.nextRoad,cross.id,i,j);
+										continue;
 									}
 
-									if (car != null && (car.dir == CarDir.R)) {
-										if (findFirstCarOnFront(road.getLeftRoad(cross.id)) == null || (findFirstCarOnFront(road.getLeftRoad(cross.id)).dir != CarDir.D)) {
-
-											if (findFirstCarOnFront(road.getOppositeRoad(cross.id)) == null || (findFirstCarOnFront(road.getOppositeRoad(cross.id)).dir != CarDir.L)) {
-												runInCross(road.info.id, car.nextRoad,cross.id);
-												//cars[i][j] = null;
-												//R405
+									//等待rightRoad的D车辆 && right L
+									if (car.dir == CarDir.L) {
+										if (findFirstCarOnRoad(crossId,road.getRightRoad(crossId)) != null && (findFirstCarOnRoad(crossId,road.getRightRoad(crossId)).dir == CarDir.D)) {
+											car.isWait = true;
+											car.waitRoad = road.getRightRoad(crossId);
+											car.waitCar = findFirstCarOnRoad(crossId,road.getRightRoad(crossId)).info.id;
+											break waitBreak;
+										}
+										if(findFirstCarOnRoad(crossId,road.getRightRoad(crossId))!=null && findFirstCarOnRoad(crossId,road.getRightRoad(crossId)).dir==CarDir.L){
+											DynamicCar waitCar=findFirstCarOnRoad(crossId,road.getRightRoad(crossId));
+											//该左转车辆可能在等待，
+											if(waitCar.isWait && findFirstCarOnRoad(crossId,waitCar.waitRoad)!=null
+													&& findFirstCarOnRoad(crossId,waitCar.waitRoad).info.id.equals(waitCar.waitCar)){
+												runInCross(road.info.id, car.nextRoad,crossId,i,j);
 												continue;
 											}
-											if (findFirstCarOnFront(road.getOppositeRoad(cross.id)) == null || (findFirstCarOnFront(road.getOppositeRoad(cross.id)).dir == CarDir.L
-													&& findFirstCarOnFront(road.getOppositeRoad(cross.id)).isWait
-													&& findCarAtRoad(findFirstCarOnFront(road.getOppositeRoad(cross.id)).waitRoad, findFirstCarOnFront(road.getOppositeRoad(cross.id)).waitCar) != -1)) {
-												runInCross(road.info.id, car.nextRoad,cross.id);
-												//cars[i][j] = null;
-											}
+											car.isWait=true;
+											car.waitCar=waitCar.info.id;
+											car.waitRoad=road.getRightRoad(crossId);
+											break waitBreak;
 										}
+										runInCross(road.info.id, car.nextRoad,crossId,i,j);
+									}
+
+									//等待leftD && oppositeL
+									if (car.dir == CarDir.R) {
+										if(findFirstCarOnRoad(crossId,road.getLeftRoad(crossId))!=null && findFirstCarOnRoad(crossId,road.getLeftRoad(crossId)).dir==CarDir.D){
+											car.isWait=true;
+											car.waitCar=findFirstCarOnRoad(crossId,road.getLeftRoad(crossId)).info.id;
+											car.waitRoad=road.getLeftRoad(crossId);
+											break waitBreak;
+										}
+										if(findFirstCarOnRoad(crossId,road.getOppositeRoad(crossId))!=null && findFirstCarOnRoad(crossId,road.getOppositeRoad(crossId)).dir==CarDir.L){
+											DynamicCar waitCar=findFirstCarOnRoad(crossId,road.getOppositeRoad(crossId));
+											//该左转车辆可能在等待，
+											if(waitCar.isWait && findFirstCarOnRoad(crossId,waitCar.waitRoad)!=null
+													&& findFirstCarOnRoad(crossId,waitCar.waitRoad).info.id.equals(waitCar.waitCar)){
+												runInCross(road.info.id, car.nextRoad,crossId,i,j);
+												continue;
+											}
+											car.isWait=true;
+											car.waitCar=waitCar.info.id;
+											car.waitRoad=road.getOppositeRoad(crossId);
+
+											judgeDeadlock(car);
+											break waitBreak;
+										}
+										//都没有阻碍，R通行
+										runInCross(road.info.id, car.nextRoad,crossId,i,j);
 									}
 									//
 								}
 							}
 						}
-						//调整所有车道内Status为End的车辆
-						runInRoadWithTwoDirection(road,cars);
+
 					}
 					cycleTime++;
 					if(cycleTime>100){
@@ -193,14 +226,17 @@ public class GetSolution{
 			deadlock=judgeDeadlock();
 			DynamicData.timeSlice+=1;
 
+			if(DynamicData.timeSlice%100==0){
+			}
 			System.out.printf("已处理时间片:%s,carInSystem:%s,已到达车辆:%s\n",
 					DynamicData.timeSlice,
 					DynamicData.carInSystem,
 					DynamicData.arrivedCars.size());
-			if(deadlock){
-				System.out.println("发生死锁");
+
+			/*if(deadlock){
+				System.out.println("发生死锁----------------------------------------");
 				break;
-			}
+			}*/
 
 			if(DynamicData.timeSlice>DynamicData.runTimeSlice) {
 				System.out.printf("时间片超过%s",DynamicData.runTimeSlice);
@@ -236,19 +272,17 @@ public class GetSolution{
 				if((!carMap[i][j].blocked) && (road.info.length-1-carMap[i][j].position)<runSpeed){
 					carMap[i][j].status= CarStatus.WAIT;
 				}
-				//
 				if((!carMap[i][j].blocked) && (road.info.length-carMap[i][j].position)>=runSpeed){
 					carMap[i][j].status= CarStatus.END;
 				}
-				//no out cross
 
+				//no out cross
 				if(carMap[i][j].blocked && carMap[i][j].blockedCar.status.equals(CarStatus.WAIT)){
 					carMap[i][j].status= CarStatus.WAIT;
 				}
-				//
 				if(carMap[i][j].blocked && carMap[i][j].blockedCar.status.equals(CarStatus.END)){
 					carMap[i][j].status= CarStatus.END;
-					carMap[i][j].runSpeed=carMap[i][j].blockedCar.position-carMap[i][j].position;
+					//carMap[i][j].runSpeed=carMap[i][j].blockedCar.position-carMap[i][j].position;
 				}
 
 			}
@@ -287,21 +321,20 @@ public class GetSolution{
 	}
 
 	private void getCarDirection(Cross cross,Integer road){
-		DynamicCar[][] carMapRight;
 		int x,y;
 		for(x=0;x<4;x++){
 			if(DynamicData.staticCrossMap.get(cross.id).orientation[x].equals(road)){
 				break;
 			}
 		}
+		DynamicCar[][] carMap=DynamicData.dynamicRoadMap.get(road).rightCarMap;
 		if(x==0 || x==3){
-			carMapRight=DynamicData.dynamicRoadMap.get(road).rightCarMap;
-			getCarDirectionWithRoadDirection(cross,carMapRight);
+			carMap=DynamicData.dynamicRoadMap.get(road).rightCarMap;
 		}
 		if(x==1 || x==2){
-			DynamicCar[][] carMapLeft=DynamicData.dynamicRoadMap.get(road).leftCarMap;
-			getCarDirectionWithRoadDirection(cross,carMapLeft);
+			carMap=DynamicData.dynamicRoadMap.get(road).leftCarMap;
 		}
+		getCarDirectionWithRoadDirection(cross,carMap);
 
 	}
 	public void getCarDirectionWithRoadDirection(Cross cross,DynamicCar[][] carMap){
@@ -316,6 +349,7 @@ public class GetSolution{
 				//当前道路为path的最后一条道路，将car.dir设置为null
 				if(car.path.indexOf(car.currentRoad)==(car.path.size()-1)){
 					car.dir=null;
+					car.isArrivedLastRoad=true;
 					continue;
 				}
 				car.nextRoad=car.path.get(car.path.indexOf(car.currentRoad)+1);
@@ -370,7 +404,7 @@ public class GetSolution{
 		int k=DynamicData.departCarNumber;
 
 		for(Car carI:DynamicData.cars){
-			if(DynamicData.carOutGarage.contains(carI.id) || DynamicData.dynamicCarMap.get(carI.id).isArrived){
+			if(DynamicData.carOutGarage.contains(carI.id)){
 				continue;
 			}
 			if(k<0){
@@ -425,7 +459,7 @@ public class GetSolution{
 		return false;
 	}
 
-	public int carSpeedInCross(DynamicRoad r1,DynamicRoad r2,DynamicCar car,int S1){
+	public static int carSpeedInCross(DynamicRoad r1,DynamicRoad r2,DynamicCar car,int S1){
 		int R1=r1.info.speed;
 		int R2=r2.info.speed;
 		int V=car.info.speed;
@@ -448,7 +482,7 @@ public class GetSolution{
 
 	//get下一道路空位
 	//如果i>0,表明第一行没有车，
-	public int[] getNextRoadSpaceCoordinate(DynamicRoad r1, DynamicRoad r2, DynamicCar[][] cars2){
+	public static int[] getNextRoadSpaceCoordinate(DynamicRoad r1, DynamicRoad r2, DynamicCar[][] cars2){
 		int[] coordinate=new int[2];
 		goOut_2:
 		for(int i=0;i<r2.info.laneNumber;i++){
@@ -472,28 +506,6 @@ public class GetSolution{
 		//coordinate[1]是length
 	}
 
-	/*//车库发车
-	public int[] getRoadSpaceCoordinate(DynamicRoad r, DynamicCar[][] cars){
-		int[] coordinate=new int[2];
-		goOut:
-		for(int i=0;i<r.info.laneNumber;i++){
-			if(cars[i][0]!=null){
-				coordinate[0]=i+1;
-				if(coordinate[0]+1==r.info.laneNumber){return null;}
-				continue;
-			}
-			for(int j=0;j<r.info.length;j++){
-				if(cars[i][j]!=null ){
-					coordinate[1]=j-1;
-					break goOut;
-				}else{
-					coordinate[1]=j;
-				}
-			}
-		}
-		return coordinate;
-	}*/
-
 	/**
 	 * runInCross需要更新currentRoad currentRoadLane nextRoad passPath position isArrived
 	 * 在这里判断是否到达终点
@@ -503,7 +515,7 @@ public class GetSolution{
 	 * @param road2
 	 */
 	//通过路口进入下一条道路 verify
-	public void runInCross(Integer road1, Integer road2, Integer cross){
+	public static void runInCross(Integer road1, Integer road2, Integer cross, int i, int j){
 		int x,y;
 		for(x=0;x<4;x++){
 			if(DynamicData.staticCrossMap.get(cross).orientation[x].equals(road1)){
@@ -535,48 +547,44 @@ public class GetSolution{
 		if(y==1 || y==2){
 			cars2=r2.rightCarMap;
 		}
-		runInCrossWithDirection(r1,r2,cars1,cars2);
+		runInCrossWithDirection(r1,r2,cars1,cars2,i,j);
 	}
-	public void runInCrossWithDirection(DynamicRoad r1, DynamicRoad r2,
-			DynamicCar[][] cars1, DynamicCar[][] cars2){
-		for(int j=cars1[0].length-1;j>=0;j--){
-			for(int i=0;i<cars1.length;i++){
-				if(cars1[i][j]==null){continue;}
+	public static boolean runInCrossWithDirection(DynamicRoad r1, DynamicRoad r2
+			, DynamicCar[][] cars1, DynamicCar[][] cars2, int i, int j){
 
-				DynamicCar car=cars1[i][j];
-				int S1=r1.info.length-1-j;
+		DynamicCar car=cars1[i][j];
+		int S1=r1.info.length-1-j;
 
-				int S2=carSpeedInCross(r1,r2,car,S1);
-				int[] coordinate= getNextRoadSpaceCoordinate(r1,r2,cars2);
-				if(coordinate==null || S2==0){
-					//System.out.println(cars1[i][j].info.id+":下一条道路堵死了");
-					runInRoadOfCar(r1,cars1,cars1[i][j]);
-					continue;
-				}
-
-
-				if(coordinate[1]>=(S2-1)){
-					cars2[coordinate[0]][S2-1]=car;
-					car.position=S2-1;
-				}else{
-					cars2[coordinate[0]][coordinate[1]]=car;
-					car.position=coordinate[1];
-				}
-				car.currentRoad=r2.info.id;
-				car.currentRoadLane=coordinate[0];
-				if(car.path.indexOf(car.currentRoad)!=(car.path.size()-1)){
-					car.nextRoad=car.path.get(car.path.indexOf(car.currentRoad)+1);
-				}
-				car.passPath.add(r1.info.id);
-				car.format();
-				//如果在当前道路被堵在原地，同样被删除
-				if(S2==0 && S1==0){
-					continue;
-				}
-				cars1[i][j]=null;
-
-			}
+		int S2=carSpeedInCross(r1,r2,car,S1);
+		int[] coordinate= getNextRoadSpaceCoordinate(r1,r2,cars2);
+		if(coordinate==null || S2==0){
+			//System.out.println(cars1[i][j].info.id+":下一条道路堵死了");
+			return runInRoadOfCar(r1,cars1,cars1[i][j],i,j);
 		}
+
+
+		if(coordinate[1]>=(S2-1)){
+			cars2[coordinate[0]][S2-1]=car;
+			car.position=S2-1;
+		}else{
+			cars2[coordinate[0]][coordinate[1]]=car;
+			car.position=coordinate[1];
+		}
+		car.currentRoad=r2.info.id;
+		car.currentRoadLane=coordinate[0];
+		if(car.path.indexOf(car.currentRoad)!=(car.path.size()-1)){
+			car.nextRoad=car.path.get(car.path.indexOf(car.currentRoad)+1);
+		}
+		car.passPath.add(r1.info.id);
+		//System.out.printf("%s-%s\n",cars1[i][j].dir,cars1[i][j].info.id);
+
+		car.format();
+		//如果在当前道路被堵在原地，同样被删除
+		if(S2==0 && S1==0){
+			return false;
+		}
+		cars1[i][j]=null;
+		return true;
 	}
 
 	/**
@@ -592,7 +600,7 @@ public class GetSolution{
 		carMap=r.leftCarMap;
 		runInRoadWithTwoDirection(r,carMap);
 	}
-	public void runInRoadWithTwoDirection(DynamicRoad r,DynamicCar[][] carMap){
+	public static void runInRoadWithTwoDirection(DynamicRoad r,DynamicCar[][] carMap){
 		for(int i=0;i<carMap.length;i++){
 			for(int j=carMap[0].length-1;j>=0;j--){
 				if(carMap[i][j]==null ){continue;}
@@ -607,12 +615,12 @@ public class GetSolution{
 				for(k=j+1;k<r.info.length;k++){
 					if(carMap[i][k]!=null){break;}
 				}
+
 				car.format();
-				//如果前方堵住了就跳过
+				//如果前方堵住了就跳过,保留状态信息
 				if(k-1-j==0){
 					continue;
 				}
-
 				if(k-1-j>=S){
 					carMap[i][j+S]=car;
 					car.position=j+S;
@@ -625,75 +633,97 @@ public class GetSolution{
 		}
 	}
 	// verify
-	private void runInRoadOfCar(DynamicRoad r, DynamicCar[][] carMap, DynamicCar car){
-		for(int j=carMap[0].length-1;j>=0;j--){
-			for(int i=0;i<carMap.length;i++){
-				if(carMap[i][j]==null){continue;}
-				if(!carMap[i][j].info.id.equals(car.info.id)){
-					continue;
-				}
-				int S=car.info.speed<r.info.speed?car.info.speed:car.info.speed;
+	private static boolean runInRoadOfCar(DynamicRoad r, DynamicCar[][] carMap, DynamicCar car,int i,int j){
+		int S=car.info.speed<r.info.speed?car.info.speed:car.info.speed;
 
-				int k;
-				for(k=j+1;k<r.info.length;k++){
-					if(carMap[i][k]!=null){break;}
-				}
-
-				car.format();
-				if(k-1-j==0){
-					continue;
-				}
-				if(k-1-j>=S){
-					carMap[i][j+S]=car;
-					car.position=j+S;
-				}else{
-					carMap[i][k-1]=car;
-					car.position=k-1;
-				}
-				carMap[i][j]=null;
-			}
+		int k;
+		for(k=j+1;k<r.info.length;k++){
+			if(carMap[i][k]!=null){break;}
 		}
+
+		car.format();
+		if(k-1-j==0){
+			return false;
+		}
+		if(k-1-j>=S){
+			carMap[i][j+S]=car;
+			car.position=j+S;
+		}else{
+			carMap[i][k-1]=car;
+			car.position=k-1;
+		}
+		carMap[i][j]=null;
+		return true;
 	}
 
-	private static DynamicCar findFirstCarOnFront(Integer r){
-		//由于传递进来的是个函数，没法保证非null，只能返回null
+	private static DynamicCar findFirstCarOnRoad(Integer cross, Integer r){
 		if(r==null){
 			return null;
 		}
 
+		int roadNumber;
 		DynamicRoad road=DynamicData.dynamicRoadMap.get(r);
+		for(roadNumber=0;roadNumber<4;roadNumber++){
+			if(DynamicData.staticCrossMap.get(cross).orientation[roadNumber].equals(r)){
+				break;
+			}
+		}
+		DynamicCar[][] cars=road.rightCarMap;
+		if(roadNumber==0 || roadNumber==3){
+			cars=road.rightCarMap;
+		}
+		if(roadNumber==1 || roadNumber==2){
+			cars=road.leftCarMap;
+		}
+
 		int i;
 		int j;
 		DynamicCar car=null;
 		for(j=road.info.length-1;j>=0;j--){
-			for(i=0;i<road.rightCarMap.length;i++){
-				if(road.rightCarMap[i][j]!=null){
-					car=road.rightCarMap[i][j];
+			for(i=0;i<cars.length;i++){
+				if(cars[i][j]!=null){
+					car=cars[i][j];
 					return car;
 				}
 			}
 		}
 		return car;
 	}
-	public static int findCarAtRoad(Integer currentRoad, Integer currentCar){
+	public static boolean findCarAtRoad(Integer cross,Integer currentRoad, Integer currentCar){
 		DynamicRoad road=DynamicData.dynamicRoadMap.get(currentRoad);
 		DynamicCar car=DynamicData.dynamicCarMap.get(currentCar);
 
+		int roadNumber;
+		for(roadNumber=0;roadNumber<4;roadNumber++){
+			if(DynamicData.staticCrossMap.get(cross).orientation[roadNumber].equals(currentRoad)){
+				break;
+			}
+		}
 		DynamicCar[][] cars=road.rightCarMap;
+		if(roadNumber==0 || roadNumber==3){
+			cars=road.rightCarMap;
+		}
+		if(roadNumber==1 || roadNumber==2){
+			cars=road.leftCarMap;
+		}
+
 		int i=0;
 		int j=0;
 		for(j=road.info.length-1;j>=0;j--){
-			for(i=0;i<road.rightCarMap.length;i++){
-				if(road.rightCarMap[i][j]==null){continue;}
-				if(road.rightCarMap[i][j].info.id.equals(car.info.id)){
-					return 1;
+			for(i=0;i<cars.length;i++){
+				if(cars[i][j]==null){continue;}
+				if(cars[i][j].info.id.equals(car.info.id)){
+					return true;
 				}
 			}
 		}
-		return -1;
+		return false;
 	}
 
-
+	/**
+	 * 死锁只会发生在两次右转等左转的情况
+	 * @return
+	 */
 	public static boolean judgeDeadlock(){
 		for(DynamicCar car:DynamicData.dynamicCarMap.values()){
 			if(DynamicData.arrivedCars.contains(car.info.id)){continue;}
@@ -709,13 +739,6 @@ public class GetSolution{
 		if(judge){
 			System.out.printf("%s进入死锁,list:",car.info.id);
 			System.out.println(Arrays.deepToString(visitedCar.toArray()));
-			/*for(Integer e:visitedCar){
-				if(visitedCar.indexOf(e)==visitedCar.size()-1){
-					System.out.printf("%s\n",car.info.id);
-				}
-				System.out.printf("%s--> ",car.info.id);
-			}
-			System.out.println();*/
 			return true;
 		}
 		return false;
@@ -748,7 +771,7 @@ public class GetSolution{
 		return false;
 	}
 
-	//验证死锁
+/*	//验证死锁
 	public static void main(String[] args) {
 		new ImportData(DynamicData.carPath,
 				DynamicData.roadPath,
@@ -758,9 +781,9 @@ public class GetSolution{
 		);
 
 		DynamicData.dynamicCarMap.get(77990).isWait=true;
-		DynamicData.dynamicCarMap.get(77990).waitCar=53426;/*
+		DynamicData.dynamicCarMap.get(77990).waitCar=53426;*//*
 		DynamicData.dynamicCarMap.get(53426).blocked=false;
-		DynamicData.dynamicCarMap.get(53426).blockedCar=null;*/
+		DynamicData.dynamicCarMap.get(53426).blockedCar=null;*//*
 
 		DynamicData.dynamicCarMap.get(53426).blocked=true;
 		DynamicData.dynamicCarMap.get(53426).blockedCar=DynamicData.dynamicCarMap.get(82522);
@@ -774,5 +797,7 @@ public class GetSolution{
 		DynamicData.dynamicCarMap.get(82524).isWait=true;
 		DynamicData.dynamicCarMap.get(82524).waitCar=77990;
 		System.out.println(judgeDeadlock());
-	}
+	}*/
+
+
 }
