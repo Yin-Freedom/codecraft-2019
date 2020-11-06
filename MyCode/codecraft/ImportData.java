@@ -8,6 +8,7 @@ import codecraft.origin.Cross;
 import codecraft.origin.Road;
 
 import java.io.*;
+import java.lang.reflect.Array;
 import java.util.*;
 
 //-encoding utf-8 ImportData.java
@@ -23,8 +24,6 @@ public class ImportData{
 
 
 	public ImportData(String carPath, String roadPath, String crossPath, String presetAnswerPath, String ansPath){
-		long time=System.currentTimeMillis();
-
 		importStaticData(carPath,crossPath,roadPath,presetAnswerPath,ansPath);
 		importDynamicData();
 	}
@@ -46,8 +45,6 @@ public class ImportData{
 			DynamicData.dynamicCrossMap.put(cross.id,new DynamicCross(cross));
 		}
 
-		setCarStartTime();
-		GetSolution.carPathSolution();
 	}
 
 	public Map<Integer,Car> readCar(String path){
@@ -153,15 +150,100 @@ public class ImportData{
 		}
 		return map;
 	}
-	public void setCarStartTime(){
-		int i=0;
-		for(DynamicCar car:DynamicData.dynamicCarMap.values()){
-			car.startTime=DynamicData.departCarNumber*(int)Math.floor(i/DynamicData.departCarNumber);
-			i++;
+
+	/**
+	 * 冒泡排序
+	 */
+	public void BubbleSort(){
+		ArrayList<Car> list=DynamicData.cars;
+		for(int i=0;i<list.size();i++){
+			for(int j=0;j<list.size()-i-1;j++){
+				if(list.get(j).id>list.get(j+1).id){
+					Car temp=list.get(j);
+					list.set(j,list.get(j+1));
+					list.set(j+1,temp);
+				}
+			}
 		}
 	}
-	
+	/**
+	 * 堆排序
+	 */
+	public void sortCarWithId(){
+		carBulidHeap(DynamicData.cars);
+		int heapSize=DynamicData.cars.size();
+		while(heapSize>1){
+			carswap(DynamicData.cars,0,--heapSize);
+			carHeapify(DynamicData.cars,0,heapSize);
+		}
+	}
+	public void carBulidHeap(ArrayList<Car> list){
+		for(int i=list.size()/2-1;i>=0;i--){
+			carHeapify(list,i,list.size());
+		}
+	}
+	public void carHeapify(ArrayList<Car> list, int father, int length){
+		int leftChild=father*2+1;
+		int rightChild=father*2+2;
+		int max=father;
+		if(leftChild<length && list.get(leftChild).id>list.get(max).id){
+			max=leftChild;
+		}
+		if(rightChild<length && list.get(rightChild).id>list.get(max).id){
+			max=rightChild;
+		}
+		if(max!=father){
+			carswap(list,father,max);
+			carHeapify(list,max,length);
+		}
+	}
+	public void carswap(ArrayList<Car> list, int a, int b){
+		Car tempCar=list.get(a);
+		list.set(a,list.get(b));
+		list.set(b,tempCar);
+	}
+
+
+
+	public void sortCrossWithId(){
+		BulidHeap(DynamicData.crosses);
+		int heapSize=DynamicData.crosses.size();
+		while(heapSize>1){
+			swap(DynamicData.crosses,0,--heapSize);
+			Heapify(DynamicData.crosses,0,heapSize);
+		}
+	}
+	public void BulidHeap(ArrayList<Integer> list){
+		for(int i=list.size()/2-1;i>=0;i--){
+			Heapify(list,i,list.size());
+		}
+	}
+	public void Heapify(ArrayList<Integer> list, int father, int length){
+		int leftChild=father*2+1;
+		int rightChild=father*2+2;
+		int max=father;
+		if(leftChild<length && DynamicData.staticCrossMap.get(list.get(leftChild)).id>DynamicData.staticCrossMap.get(list.get(max)).id){
+			max=leftChild;
+		}
+		if(rightChild<length && DynamicData.staticCrossMap.get(list.get(rightChild)).id>DynamicData.staticCrossMap.get(list.get(max)).id){
+			max=rightChild;
+		}
+		if(max!=father){
+			swap(list,father,max);
+			Heapify(list,max,length);
+		}
+	}
+	public void swap(ArrayList<Integer> list, int a, int b){
+		Integer tempCross=list.get(a);
+		list.set(a,list.get(b));
+		list.set(b,tempCross);
+	}
 	/*public static void main(String[] args) {
-		ImportData imData=new ImportData();
+		new ImportData(DynamicData.carPath,
+				DynamicData.roadPath,
+				DynamicData.crossPath,
+				DynamicData.presetAnswerPath,
+				DynamicData.ansPath
+		);
 	}*/
 }

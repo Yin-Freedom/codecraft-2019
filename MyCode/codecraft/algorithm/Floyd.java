@@ -2,31 +2,37 @@ package codecraft.algorithm;
 
 import codecraft.CrossMap;
 import codecraft.DynamicData;
+import codecraft.dynamic.DynamicRoad;
 import codecraft.origin.Road;
 
 import java.util.*;
 
 public class Floyd{
-	private final int n;
-	public static int[][] d;
+	private static int n;
+	public static double[][] d;
 	public static int[][] p;
-	public int value;
 	private static final int inf=Integer.MAX_VALUE;
 	public static ArrayList<Integer> crosses;
 	public static ArrayList<Road> roads;
 
 	public Floyd(){
-		//ImportData im=new ImportData();
-		n= DynamicData.crosses.size();
+		n=DynamicData.crosses.size();
 		crosses=DynamicData.crosses;
 		roads=DynamicData.roads;
 
-		d=new int[n+1][n+1];
+		d=new double[n+1][n+1];
 		p=new int[n+1][n+1];
 	}
 
-	public void createMap(ArrayList<Road> roads,ArrayList<Integer>crosses){
+	public static void update(ArrayList<Road> roads,ArrayList<Integer> crosses) {
+		d=new double[n+1][n+1];
+		p=new int[n+1][n+1];
+		createMap(roads,crosses);
+	}
 
+
+	public static void createMap(ArrayList<Road> roads,ArrayList<Integer>crosses){
+		double weight;
 
 		for(int i=0;i<crosses.size();i++){
 			p[0][i+1]=crosses.get(i);
@@ -37,10 +43,10 @@ public class Floyd{
 			for(int y=1;y<=n;y++){
 				for(Road road:roads){
 					if(p[x][0]==road.from && p[0][y]==road.to){
-						value=road.length/road.speed;
-						d[x][y]=value;
+						weight=road.length/road.speed;
+						d[x][y]=weight;
 						if(road.twoWay==1){
-							d[y][x]=value;
+							d[y][x]=weight;
 						}
 						p[x][y]=p[0][y];
 					}
@@ -59,7 +65,7 @@ public class Floyd{
 		for(int k=1;k<=n;k++){
 			for(int i=1;i<=n;i++){
 				for(int j=1;j<=n;j++){
-					int temp=(d[i][k]==inf || d[k][j]==inf)?inf:
+					double temp=(d[i][k]==inf || d[k][j]==inf)?inf:
 					(d[i][k]+d[k][j]);
 					if(d[i][j]>temp){
 						d[i][j]=temp;
@@ -94,7 +100,7 @@ public class Floyd{
 		}
 		return path;
 	}
-	public ArrayList<Integer> findPath(CrossMap map, int a, int b, ArrayList<Integer> crosses){
+	public static ArrayList<Integer> findPath(CrossMap map, int a, int b, ArrayList<Integer> crosses){
 		//起点a，终点b
 		ArrayList<Integer> path=new ArrayList<>();
 		if(d[crosses.indexOf(a)+1][crosses.indexOf(b)+1]!=inf){
@@ -117,25 +123,6 @@ public class Floyd{
 			}
 		}
 		return path;
-	}
-
-	public void upDateValue(){
-		d=new int[n+1][n+1];
-		p=new int[n+1][n+1];
-		for(int x=1;x<=n;x++){
-			for(int y=1;y<=n;y++){
-				for(Road road:roads){
-					if(p[x][0]==road.from && p[0][y]==road.to){
-						value=road.length/road.speed;
-						d[x][y]=value;
-						if(road.twoWay==1){
-							d[y][x]=value;
-						}
-						p[x][y]=p[0][y];
-					}
-				}
-			}
-		}
 	}
 	
 	/*public static void main(String[] args){
